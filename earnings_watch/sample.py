@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from .models import EarningsEvent, Stock
 from .report import ET, RECENT_WINDOW, release_time
 
-# (距今天的美东天数, 时段)；None 表示 90 天内暂无日期
-UPCOMING = [(1, "amc"), (3, "bmo"), (6, "amc"), (12, "bmo"), (26, "amc"), (45, "bmo"), (80, ""), None]
+# (距今天的美东天数, 时段)；None 表示查询范围内暂无日期
+UPCOMING = [(1, "amc"), (3, "bmo"), (6, "amc"), (12, "bmo"), (26, "amc"), (45, "bmo"), (55, ""), None]
 
 
 def sample_events(stocks: list[Stock], now: datetime) -> dict[str, list[EarningsEvent]]:

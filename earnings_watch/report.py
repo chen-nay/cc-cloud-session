@@ -36,6 +36,7 @@ class Entry:
 class Report:
     now: datetime  # 北京时间
     total: int
+    horizon_days: int  # 往后查了多少天
     recent: list[Entry] = field(default_factory=list)  # 过去 24 小时内已发布
     within_7: list[Entry] = field(default_factory=list)
     within_30: list[Entry] = field(default_factory=list)
@@ -55,10 +56,11 @@ def build_report(
     events: dict[str, list[EarningsEvent]],
     failures: dict[str, str],
     now: datetime,
+    horizon_days: int = 60,
 ) -> Report:
     now = now.astimezone(BJ)
     today = now.date()
-    report = Report(now=now, total=len(stocks))
+    report = Report(now=now, total=len(stocks), horizon_days=horizon_days)
 
     for stock in stocks:
         if stock.symbol in failures:
@@ -70,12 +72,12 @@ def build_report(
         report.recent += [Entry(stock, ev, 0) for ev in recent]
 
         upcoming = next((ev for ev in ordered if release_time(ev) > now), None)
-        if upcoming is None:
+        days = None if upcoming is None else (release_time(upcoming).astimezone(BJ).date() - today).days
+        if days is None or days > horizon_days:
             if not recent:  # 刚发布完的公司，下一次财报日通常还没出来，不必再列一遍
                 report.no_date.append(stock)
             continue
 
-        days = (release_time(upcoming).astimezone(BJ).date() - today).days
         entry = Entry(stock, upcoming, days)
         if days <= 7:
             report.within_7.append(entry)
@@ -190,7 +192,10 @@ def render_markdown(report: Report) -> str:
                 "",
             ]
 
-    for header, bucket in (("🟡 8–30 天", report.within_30), ("⚪ 30 天以上", report.later)):
+    for header, bucket in (
+        ("🟡 8–30 天", report.within_30),
+        (f"⚪ 31–{report.horizon_days} 天", report.later),
+    ):
         if not bucket:
             continue
         lines += [f"#### {header}（{len(bucket)} 家）", ""]
@@ -201,7 +206,12 @@ def render_markdown(report: Report) -> str:
         lines.append("")
 
     if report.no_date:
-        lines += ["#### ❔ 90 天内暂无日期", "", "、".join(s.label for s in report.no_date), ""]
+        lines += [
+            f"#### ❔ {report.horizon_days} 天内暂无日期",
+            "",
+            "、".join(s.label for s in report.no_date),
+            "",
+        ]
 
     if report.failed:
         lines += ["#### ⚠️ 查询失败", ""]

@@ -118,6 +118,12 @@ def test_markdown_contains_links_and_sections():
     assert "(https://www.earningswhispers.com/epsdetails/nvda)" in md
 
 
+def test_unknown_session_is_not_repeated_in_7_day_section():
+    md = render_markdown(build_report([Stock("ARM")], {"ARM": [ev("ARM", date(2026, 11, 5), "")]}, {}, NOW))
+    assert "- 美东 11/05 周四 时段未定\n" in md
+    assert "（美东" not in md
+
+
 def test_sample_data_fills_every_section():
     stocks = [Stock(f"S{i}") for i in range(10)]
     report = build_report(stocks, sample_events(stocks, NOW), {}, NOW)

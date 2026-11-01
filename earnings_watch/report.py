@@ -184,10 +184,12 @@ def render_markdown(report: Report) -> str:
             if revenue := fmt_revenue(ev.revenue_estimate):
                 details.append(f"营收预期 {revenue}")
             details.append(ew_link(e.stock.symbol))
+            # 时段未定时 fmt_beijing 已经给出美东日期，不必再重复一遍
+            when = f"{fmt_beijing(ev)}（{fmt_us(ev)}）" if ev.hour in SESSIONS else fmt_beijing(ev)
             lines += [
                 f"**{e.stock.label}** · **{fmt_days(e.days)}**",
                 "",
-                f"- {fmt_beijing(ev)}（{fmt_us(ev)}）",
+                f"- {when}",
                 f"- {' · '.join(details)}",
                 "",
             ]

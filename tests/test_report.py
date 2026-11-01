@@ -107,7 +107,7 @@ def test_revenue_format():
     assert fmt_revenue(None) is None
 
 
-def test_markdown_contains_links_and_sections():
+def test_markdown_sections_without_links():
     stocks = [Stock("NVDA", "英伟达")]
     events = {"NVDA": [ev("NVDA", date(2026, 11, 4), "amc", eps_estimate=1.25, revenue_estimate=5.4e10)]}
     md = render_markdown(build_report(stocks, events, {}, NOW))
@@ -115,7 +115,7 @@ def test_markdown_contains_links_and_sections():
     assert "**NVDA 英伟达** · **3 天后**" in md
     assert "北京 11/05 周四 凌晨（美东 11/04 周三 盘后）" in md
     assert "EPS 预期 1.25 · 营收预期 540 亿美元" in md
-    assert "(https://www.earningswhispers.com/epsdetails/nvda)" in md
+    assert "earningswhispers" not in md
 
 
 def test_unknown_session_is_not_repeated_in_7_day_section():
@@ -128,3 +128,9 @@ def test_sample_data_fills_every_section():
     stocks = [Stock(f"S{i}") for i in range(10)]
     report = build_report(stocks, sample_events(stocks, NOW), {}, NOW)
     assert report.recent and report.within_7 and report.within_30 and report.later and report.no_date
+
+
+def test_7_day_entry_without_estimates_has_no_empty_line():
+    md = render_markdown(build_report([Stock("X")], {"X": [ev("X", date(2026, 11, 4), "amc")]}, {}, NOW))
+    assert "- 北京 11/05 周四 凌晨（美东 11/04 周三 盘后）\n\n" in md
+    assert "\n- \n" not in md

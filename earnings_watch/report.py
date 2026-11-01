@@ -19,7 +19,6 @@ SESSIONS = {
 }
 UNKNOWN_SESSION_TIME = time(16, 30)  # 未公布时段时按盘后估算
 
-EW_URL = "https://www.earningswhispers.com/epsdetails/{symbol}"
 WEEKDAYS = "一二三四五六日"
 TITLE_MAX = 32  # Server酱 标题上限
 RECENT_WINDOW = timedelta(hours=24)
@@ -131,10 +130,6 @@ def fmt_eps(value: float | None) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
-def ew_link(symbol: str) -> str:
-    return f"[EW]({EW_URL.format(symbol=symbol.lower())})"
-
-
 # ---------- 渲染 ----------
 
 def render_title(report: Report) -> str:
@@ -171,7 +166,7 @@ def render_markdown(report: Report) -> str:
     if report.recent:
         lines += ["#### 🆕 过去 24 小时已发布", ""]
         for e in report.recent:
-            lines.append(f"- **{e.stock.label}** {fmt_beijing(e.event)} · {_eps_result(e.event)} · {ew_link(e.stock.symbol)}")
+            lines.append(f"- **{e.stock.label}** {fmt_beijing(e.event)} · {_eps_result(e.event)}")
         lines.append("")
 
     if report.within_7:
@@ -183,16 +178,12 @@ def render_markdown(report: Report) -> str:
                 details.append(f"EPS 预期 {eps}")
             if revenue := fmt_revenue(ev.revenue_estimate):
                 details.append(f"营收预期 {revenue}")
-            details.append(ew_link(e.stock.symbol))
             # 时段未定时 fmt_beijing 已经给出美东日期，不必再重复一遍
             when = f"{fmt_beijing(ev)}（{fmt_us(ev)}）" if ev.hour in SESSIONS else fmt_beijing(ev)
-            lines += [
-                f"**{e.stock.label}** · **{fmt_days(e.days)}**",
-                "",
-                f"- {when}",
-                f"- {' · '.join(details)}",
-                "",
-            ]
+            lines += [f"**{e.stock.label}** · **{fmt_days(e.days)}**", "", f"- {when}"]
+            if details:
+                lines.append(f"- {' · '.join(details)}")
+            lines.append("")
 
     for header, bucket in (
         ("🟡 8–30 天", report.within_30),
@@ -202,9 +193,7 @@ def render_markdown(report: Report) -> str:
             continue
         lines += [f"#### {header}（{len(bucket)} 家）", ""]
         for e in bucket:
-            lines.append(
-                f"- **{e.stock.label}** · {fmt_days(e.days)} · {fmt_beijing(e.event)} · {ew_link(e.stock.symbol)}"
-            )
+            lines.append(f"- **{e.stock.label}** · {fmt_days(e.days)} · {fmt_beijing(e.event)}")
         lines.append("")
 
     if report.no_date:
@@ -223,8 +212,8 @@ def render_markdown(report: Report) -> str:
     lines += [
         "---",
         "",
-        "数据来源 Finnhub。较远的日期多为预估，以公司公告为准；"
-        "点 EW 可在 Earnings Whispers 查看日期是否已确认及耳语数字。",
+        "数据来源 Finnhub，预期为分析师一致预期（non-GAAP）。"
+        "标注「时段未定」或较远的日期多为预估，以公司公告为准。",
     ]
     return "\n".join(lines).rstrip() + "\n"
 

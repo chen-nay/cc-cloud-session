@@ -36,6 +36,7 @@ class Entry:
 class Report:
     now: datetime  # 北京时间
     total: int
+    horizon_days: int  # 往后查了多少天
     recent: list[Entry] = field(default_factory=list)  # 过去 24 小时内已发布
     within_7: list[Entry] = field(default_factory=list)
     within_30: list[Entry] = field(default_factory=list)
@@ -55,10 +56,11 @@ def build_report(
     events: dict[str, list[EarningsEvent]],
     failures: dict[str, str],
     now: datetime,
+    horizon_days: int = 120,
 ) -> Report:
     now = now.astimezone(BJ)
     today = now.date()
-    report = Report(now=now, total=len(stocks))
+    report = Report(now=now, total=len(stocks), horizon_days=horizon_days)
 
     for stock in stocks:
         if stock.symbol in failures:
@@ -201,7 +203,12 @@ def render_markdown(report: Report) -> str:
         lines.append("")
 
     if report.no_date:
-        lines += ["#### ❔ 90 天内暂无日期", "", "、".join(s.label for s in report.no_date), ""]
+        lines += [
+            f"#### ❔ {report.horizon_days} 天内暂无日期",
+            "",
+            "、".join(s.label for s in report.no_date),
+            "",
+        ]
 
     if report.failed:
         lines += ["#### ⚠️ 查询失败", ""]

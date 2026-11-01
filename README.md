@@ -3,7 +3,7 @@
 每天北京时间 10:00，GitHub Actions 会自动做三件事：
 
 1. 读取 `watchlist.txt` 里的关注列表
-2. 用 [Finnhub](https://finnhub.io) 查询每家公司未来 90 天内的财报日
+2. 用 [Finnhub](https://finnhub.io) 查询每家公司未来 120 天内的财报日
 3. 把结果整理好，通过 [Server酱](https://sct.ftqq.com) 推送到你的个人微信
 
 推送内容按距离远近分组：过去 24 小时已发布、7 天内、8–30 天、30 天以上、暂无日期。每家公司都会显示：

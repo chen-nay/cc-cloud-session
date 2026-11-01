@@ -10,3 +10,4 @@ TSLA   特斯拉
 AMD
 PLTR   Palantir
 NFLX   奈飞
+DELL   戴尔

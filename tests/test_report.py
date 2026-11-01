@@ -51,6 +51,7 @@ def test_buckets_and_days():
     assert [e.stock.symbol for e in report.later] == ["D"]
     assert [s.symbol for s in report.no_date] == ["E"]
     assert [(s.symbol, r) for s, r in report.failed] == [("F", "HTTP 500")]
+    assert "#### ❔ 120 天内暂无日期" in render_markdown(report)
 
 
 def test_just_released_goes_to_recent_and_next_event_is_upcoming():

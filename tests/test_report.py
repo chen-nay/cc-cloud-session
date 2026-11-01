@@ -103,9 +103,9 @@ def test_title_without_upcoming_in_7_days():
 
 
 def test_revenue_format():
-    assert fmt_revenue(102.3e9) == "1023 亿美元"
-    assert fmt_revenue(5.25e8) == "5.2 亿美元"
-    assert fmt_revenue(3.4e7) == "3400 万美元"
+    assert fmt_revenue(102.3e9) == "1023 亿"
+    assert fmt_revenue(5.25e8) == "5.2 亿"
+    assert fmt_revenue(3.4e7) == "3400 万"
     assert fmt_revenue(None) is None
 
 
@@ -116,7 +116,7 @@ def test_markdown_sections_without_links():
     assert "🔴 7 天内（1 家）" in md
     assert "**NVDA 英伟达** · **3 天后**" in md
     assert "北京 11/05 周四 凌晨（美东 11/04 周三 盘后）" in md
-    assert "EPS 预期 1.25 · 营收预期 540 亿美元" in md
+    assert "EPS 预期 1.25 · 营收预期 540 亿" in md
     assert "earningswhispers" not in md
 
 

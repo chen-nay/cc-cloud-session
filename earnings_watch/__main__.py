@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -12,7 +13,8 @@ from pathlib import Path
 from . import serverchan
 from .finnhub import FinnhubAuthError, FinnhubClient, FinnhubError
 from .models import EarningsEvent, Stock
-from .report import BJ, ET, attach_year_ago, build_report, render_markdown, render_title
+from .html_report import render_html
+from .report import BJ, ET, Report, attach_year_ago, build_report, render_markdown, render_title
 from .sample import sample_events
 from .watchlist import load_watchlist
 
@@ -62,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="只生成报告，不推送")
     parser.add_argument("--sample", action="store_true", help="使用示例数据，不需要 Finnhub API key")
     parser.add_argument("--alert", metavar="TEXT", help="只推送一条告警消息（workflow 失败时使用）")
+    parser.add_argument("--site-dir", metavar="DIR", help="生成网页版和报告图片到这个目录（用于 GitHub Pages）")
+    parser.add_argument("--site-url", metavar="URL", help="网站的公网地址，用于在消息里引用图片")
+    parser.add_argument("--send", metavar="FILE", help="只推送之前生成好的消息（output/message.json）")
+    parser.add_argument("--text-only", action="store_true", help="配合 --send：不带图片，只推送文字版")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -72,6 +78,15 @@ def main(argv: list[str] | None = None) -> int:
             log.error("未设置 SERVERCHAN_SENDKEY")
             return 2
         serverchan.send(sendkey, "美股财报日历：运行失败", args.alert)
+        return 0
+
+    if args.send:
+        if not sendkey:
+            log.error("未设置 SERVERCHAN_SENDKEY")
+            return 2
+        message = json.loads(Path(args.send).read_text(encoding="utf-8"))
+        serverchan.send(sendkey, message["title"], compose_body(message, text_only=args.text_only))
+        log.info("已推送到 Server酱（%s）", "文字版" if args.text_only or not message.get("image_url") else "图片 + 文字版")
         return 0
 
     stocks = load_watchlist(args.watchlist)
@@ -111,15 +126,48 @@ def main(argv: list[str] | None = None) -> int:
     print(f"标题：{title}\n\n{body}")
     log.info("报告已保存到 %s", out)
 
+    image_url = build_site(report, Path(args.site_dir), args.site_url) if args.site_dir else None
+    message = {"title": title, "text": body, "image_url": image_url, "page_url": args.site_url or None}
+    message_path = out.with_name("message.json")
+    message_path.write_text(json.dumps(message, ensure_ascii=False, indent=2), encoding="utf-8")
+
     if args.dry_run:
-        log.info("--dry-run：不推送")
+        log.info("--dry-run：不推送（消息已保存到 %s，可用 --send 推送）", message_path)
         return 0
     if not sendkey:
         log.error("未设置 SERVERCHAN_SENDKEY，无法推送（只想预览请加 --dry-run）")
         return 2
-    serverchan.send(sendkey, title, body)
+    serverchan.send(sendkey, title, compose_body(message))
     log.info("已推送到 Server酱")
     return 0
+
+
+def build_site(report: Report, site_dir: Path, site_url: str | None) -> str | None:
+    """生成网页版 index.html 和报告图片；返回图片的公网地址（截图失败或没有 site_url 时为 None）。"""
+    site_dir.mkdir(parents=True, exist_ok=True)
+    html_path = site_dir / "index.html"
+    html_path.write_text(render_html(report), encoding="utf-8")
+    png_name = f"report-{report.now:%Y%m%d-%H%M}.png"  # 每次文件名不同，避免微信缓存旧图
+    try:
+        from .snapshot import screenshot
+
+        screenshot(html_path, site_dir / png_name)
+    except Exception as e:  # 截图失败不影响文字版推送
+        log.warning("生成报告图片失败，只推送文字版：%s", e)
+        return None
+    log.info("报告图片已生成：%s", site_dir / png_name)
+    return f"{site_url.rstrip('/')}/{png_name}" if site_url else None
+
+
+def compose_body(message: dict, text_only: bool = False) -> str:
+    """图片放最上面（方便长按转发），下面附文字版，图片加载不出来时也能看。"""
+    text = message["text"]
+    if text_only or not message.get("image_url"):
+        return text
+    head = f"![美股财报日历]({message['image_url']})\n\n"
+    if message.get("page_url"):
+        head += f"[打开网页版]({message['page_url'].rstrip('/')}/)\n\n"
+    return f"{head}---\n\n{text}"
 
 
 if __name__ == "__main__":

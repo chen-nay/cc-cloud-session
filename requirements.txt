@@ -1,1 +1,2 @@
 requests>=2.31,<3
+playwright==1.64.0  # 只有生成报告图片（--site-dir）时才用到

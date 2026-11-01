@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: read
+  pages: write # 发布报告图片到 GitHub Pages
+  id-token: write
 
 concurrency:
   group: daily-earnings
@@ -20,7 +22,10 @@ concurrency:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -32,18 +37,53 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Build report and push to WeChat
+      # 截图需要浏览器和中文字体；失败也不要紧，会退回只推送文字版
+      - name: Install Chinese fonts and Chromium
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk
+          python -m playwright install --with-deps chromium
+
+      - name: Configure GitHub Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Build report and image
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: >-
+          python -m earnings_watch --dry-run
+          --site-dir site
+          --site-url "${{ steps.pages.outputs.base_url }}"
+          ${{ inputs.sample && '--sample' || '' }}
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Push to WeChat
+        env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
-        run: python -m earnings_watch ${{ inputs.sample && '--sample' || '' }}
+        run: >-
+          python -m earnings_watch --send output/message.json
+          ${{ steps.deployment.outcome != 'success' && '--text-only' || '' }}
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: report-${{ github.run_id }}
-          path: output/
+          path: |
+            output/
+            site/
           if-no-files-found: ignore
           retention-days: 14
 

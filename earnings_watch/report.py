@@ -98,19 +98,33 @@ def fmt_day(dt: datetime) -> str:
     return f"{dt:%m/%d} 周{WEEKDAYS[dt.weekday()]}"
 
 
-def fmt_beijing(event: EarningsEvent) -> str:
-    """例如 "11/06 周五 凌晨"；时段未知时只给美东日期。"""
+def beijing_slot(event: EarningsEvent) -> tuple[datetime, str] | None:
+    """发布时刻换算成北京时间，以及"凌晨/上午/下午/晚间"；时段未知时返回 None。"""
     if event.hour not in SESSIONS:
-        return f"美东 {fmt_day(datetime.combine(event.date, time()))} 时段未定"
+        return None
     bj = release_time(event).astimezone(BJ)
     h = bj.hour
-    part = "凌晨" if h < 6 else "上午" if h < 12 else "下午" if h < 18 else "晚间"
-    return f"北京 {fmt_day(bj)} {part}"
+    return bj, "凌晨" if h < 6 else "上午" if h < 12 else "下午" if h < 18 else "晚间"
+
+
+def us_day(event: EarningsEvent) -> str:
+    return fmt_day(datetime.combine(event.date, time()))
+
+
+def fmt_beijing(event: EarningsEvent) -> str:
+    """例如 "北京 11/06 周五 凌晨"；时段未知时只给美东日期。"""
+    slot = beijing_slot(event)
+    if slot is None:
+        return f"美东 {us_day(event)} 时段未定"
+    return f"北京 {fmt_day(slot[0])} {slot[1]}"
+
+
+def session_name(event: EarningsEvent) -> str:
+    return SESSIONS[event.hour][0] if event.hour in SESSIONS else "时段未定"
 
 
 def fmt_us(event: EarningsEvent) -> str:
-    session = SESSIONS[event.hour][0] if event.hour in SESSIONS else "时段未定"
-    return f"美东 {fmt_day(datetime.combine(event.date, time()))} {session}"
+    return f"美东 {us_day(event)} {session_name(event)}"
 
 
 def fmt_days(days: int) -> str:
@@ -118,26 +132,35 @@ def fmt_days(days: int) -> str:
 
 
 def fmt_revenue(value: float | None) -> str | None:
+    """不写币种：多数是美元，但阿里、拼多多等按人民币编制财报，Finnhub 给的可能是人民币。"""
     if not value:
         return None
     yi = value / 1e8
     if yi >= 100:
-        return f"{yi:.0f} 亿美元"
+        return f"{yi:.0f} 亿"
     if yi >= 1:
-        return f"{yi:.1f} 亿美元"
-    return f"{value / 1e4:.0f} 万美元"
+        return f"{yi:.1f} 亿"
+    return f"{value / 1e4:.0f} 万"
 
 
 def fmt_eps(value: float | None) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
+def growth_pct(estimate: float | None, year_ago: float | None) -> float | None:
+    """同比增长百分比；去年同期亏损或为 0 时百分比没有意义，返回 None。"""
+    if estimate is None or year_ago is None or year_ago <= 0:
+        return None
+    return (estimate - year_ago) / year_ago * 100
+
+
 def fmt_growth(estimate: float | None, year_ago: float | None) -> str:
-    """例如 "（同比 +18%）"；去年同期亏损或为 0 时百分比没有意义，改为直接给出去年的数。"""
+    """例如 "（同比 +18%）"；去年同期亏损或为 0 时改为直接给出去年的数。"""
     if estimate is None or year_ago is None:
         return ""
-    if year_ago > 0:
-        return f"（同比 {(estimate - year_ago) / year_ago * 100:+.0f}%）"
+    pct = growth_pct(estimate, year_ago)
+    if pct is not None:
+        return f"（同比 {pct:+.0f}%）"
     return f"（去年同期 {year_ago:.2f}）"
 
 
@@ -231,7 +254,7 @@ def render_markdown(report: Report) -> str:
     lines += [
         "---",
         "",
-        "数据来源 Finnhub，预期为分析师一致预期（non-GAAP）。"
+        "数据来源 Finnhub，预期为分析师一致预期（non-GAAP）；营收按财报货币计，多数为美元，中概股可能为人民币。"
         "标注「时段未定」或较远的日期多为预估，以公司公告为准。",
     ]
     return "\n".join(lines).rstrip() + "\n"

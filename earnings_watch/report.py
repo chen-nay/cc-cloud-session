@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -29,6 +30,7 @@ class Entry:
     stock: Stock
     event: EarningsEvent
     days: int  # 按北京日期计算，距离今天还有几天
+    eps_year_ago: float | None = None  # 去年同一季度的实际 EPS，用于算同比
 
 
 @dataclass
@@ -130,6 +132,23 @@ def fmt_eps(value: float | None) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
+def fmt_growth(estimate: float | None, year_ago: float | None) -> str:
+    """例如 "（同比 +18%）"；去年同期亏损或为 0 时百分比没有意义，改为直接给出去年的数。"""
+    if estimate is None or year_ago is None:
+        return ""
+    if year_ago > 0:
+        return f"（同比 {(estimate - year_ago) / year_ago * 100:+.0f}%）"
+    return f"（去年同期 {year_ago:.2f}）"
+
+
+def attach_year_ago(report: Report, lookup: Callable[[EarningsEvent], float | None]) -> None:
+    """给 7 天内（只有这一组显示 EPS 预期）的公司补上去年同期的实际 EPS。"""
+    report.within_7 = [
+        replace(e, eps_year_ago=lookup(e.event)) if e.event.eps_estimate is not None else e
+        for e in report.within_7
+    ]
+
+
 # ---------- 渲染 ----------
 
 def render_title(report: Report) -> str:
@@ -175,7 +194,7 @@ def render_markdown(report: Report) -> str:
             ev = e.event
             details = []
             if eps := fmt_eps(ev.eps_estimate):
-                details.append(f"EPS 预期 {eps}")
+                details.append(f"EPS 预期 {eps}{fmt_growth(ev.eps_estimate, e.eps_year_ago)}")
             if revenue := fmt_revenue(ev.revenue_estimate):
                 details.append(f"营收预期 {revenue}")
             # 时段未定时 fmt_beijing 已经给出美东日期，不必再重复一遍

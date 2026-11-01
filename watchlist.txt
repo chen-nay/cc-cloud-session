@@ -1,0 +1,12 @@
+# 关注列表：每行一个美股代码，后面可以写中文名（可选）
+# 以 # 开头的行是注释；改完提交到 main 分支，第二天自动生效
+AAPL   苹果
+MSFT   微软
+NVDA   英伟达
+GOOGL  谷歌
+AMZN   亚马逊
+META   Meta
+TSLA   特斯拉
+AMD
+PLTR   Palantir
+NFLX   奈飞

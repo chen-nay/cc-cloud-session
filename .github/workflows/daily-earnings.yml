@@ -1,0 +1,56 @@
+name: Daily earnings report
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # UTC 02:00 = 北京时间 10:00（GitHub 高峰期可能延迟几分钟到几十分钟）
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: "使用示例数据（用来测试微信推送，不需要 Finnhub key）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-earnings
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build report and push to WeChat
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+        run: python -m earnings_watch ${{ inputs.sample && '--sample' || '' }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: report-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Notify failure
+        if: failure()
+        env:
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+        run: >-
+          python -m earnings_watch --alert
+          "今天的财报日历没有成功生成，查看日志：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

@@ -42,8 +42,7 @@ def fetch_all(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="earnings_watch", description="查询关注列表的美股财报日，并推送到微信")
     parser.add_argument("--watchlist", default="watchlist.txt", help="关注列表文件（默认 watchlist.txt）")
-    # 每季度约 90 天一次财报，刚发完财报的公司下次日期通常在 90～100 天后，所以多查一些
-    parser.add_argument("--days", type=int, default=120, help="往后查多少天（默认 120）")
+    parser.add_argument("--days", type=int, default=60, help="往后查多少天（默认 60）")
     parser.add_argument("--output", default="output/report.md", help="报告保存位置")
     parser.add_argument("--dry-run", action="store_true", help="只生成报告，不推送")
     parser.add_argument("--sample", action="store_true", help="使用示例数据，不需要 Finnhub API key")

@@ -56,7 +56,7 @@ def build_report(
     events: dict[str, list[EarningsEvent]],
     failures: dict[str, str],
     now: datetime,
-    horizon_days: int = 120,
+    horizon_days: int = 60,
 ) -> Report:
     now = now.astimezone(BJ)
     today = now.date()
@@ -72,12 +72,12 @@ def build_report(
         report.recent += [Entry(stock, ev, 0) for ev in recent]
 
         upcoming = next((ev for ev in ordered if release_time(ev) > now), None)
-        if upcoming is None:
+        days = None if upcoming is None else (release_time(upcoming).astimezone(BJ).date() - today).days
+        if days is None or days > horizon_days:
             if not recent:  # 刚发布完的公司，下一次财报日通常还没出来，不必再列一遍
                 report.no_date.append(stock)
             continue
 
-        days = (release_time(upcoming).astimezone(BJ).date() - today).days
         entry = Entry(stock, upcoming, days)
         if days <= 7:
             report.within_7.append(entry)
@@ -192,7 +192,10 @@ def render_markdown(report: Report) -> str:
                 "",
             ]
 
-    for header, bucket in (("🟡 8–30 天", report.within_30), ("⚪ 30 天以上", report.later)):
+    for header, bucket in (
+        ("🟡 8–30 天", report.within_30),
+        (f"⚪ 31–{report.horizon_days} 天", report.later),
+    ):
         if not bucket:
             continue
         lines += [f"#### {header}（{len(bucket)} 家）", ""]

@@ -1,10 +1,10 @@
 from datetime import date, datetime
 
-from earnings_watch.models import EarningsEvent, Stock
+from earnings_watch.models import EarningsEvent, EpsBaseline, Stock
 from earnings_watch.report import (
     BJ,
     TITLE_MAX,
-    attach_year_ago,
+    attach_eps_baseline,
     build_report,
     fmt_beijing,
     fmt_growth,
@@ -139,15 +139,17 @@ def test_7_day_entry_without_estimates_has_no_empty_line():
 
 
 def test_growth_format():
-    assert fmt_growth(0.67, 0.46) == "（同比 +46%）"
-    assert fmt_growth(0.30, 0.40) == "（同比 -25%）"
-    assert fmt_growth(0.12, -0.05) == "（去年同期 -0.05）"
-    assert fmt_growth(0.12, 0.0) == "（去年同期 0.00）"
-    assert fmt_growth(0.12, None) == ""
-    assert fmt_growth(None, 0.4) == ""
+    B = EpsBaseline
+    assert fmt_growth(0.67, B(year_ago=0.46)) == "（同比 +46%）"
+    assert fmt_growth(0.67, B(last_quarter=0.62, year_ago=0.46)) == "（同比 +46%，环比 +8%）"
+    assert fmt_growth(0.30, B(last_quarter=0.35, year_ago=0.40)) == "（同比 -25%，环比 -14%）"
+    assert fmt_growth(0.12, B(last_quarter=-0.02, year_ago=-0.05)) == "（去年同期 -0.05，上季 -0.02）"
+    assert fmt_growth(0.12, B(year_ago=0.0)) == "（去年同期 0.00）"
+    assert fmt_growth(0.12, B()) == ""
+    assert fmt_growth(None, B(year_ago=0.4)) == ""
 
 
-def test_year_ago_attached_only_to_7_day_entries_with_estimates():
+def test_baseline_attached_only_to_7_day_entries_with_estimates():
     stocks = [Stock("A"), Stock("B"), Stock("C")]
     events = {
         "A": [ev("A", date(2026, 11, 4), "amc", eps_estimate=0.67)],
@@ -156,6 +158,6 @@ def test_year_ago_attached_only_to_7_day_entries_with_estimates():
     }
     report = build_report(stocks, events, {}, NOW)
     looked_up = []
-    attach_year_ago(report, lambda e: looked_up.append(e.symbol) or 0.46)
+    attach_eps_baseline(report, lambda e: looked_up.append(e.symbol) or EpsBaseline(0.62, 0.46))
     assert looked_up == ["A"]
-    assert "EPS 预期 0.67（同比 +46%）" in render_markdown(report)
+    assert "EPS 预期 0.67（同比 +46%，环比 +8%）" in render_markdown(report)

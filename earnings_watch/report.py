@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from .models import EarningsEvent, Stock
+from .models import EarningsEvent, EpsBaseline, Stock
 
 ET = ZoneInfo("America/New_York")
 BJ = ZoneInfo("Asia/Shanghai")
@@ -30,7 +30,7 @@ class Entry:
     stock: Stock
     event: EarningsEvent
     days: int  # 按北京日期计算，距离今天还有几天
-    eps_year_ago: float | None = None  # 去年同一季度的实际 EPS，用于算同比
+    baseline: EpsBaseline = EpsBaseline()  # 上一季度、去年同期的实际 EPS，用于算环比和同比
 
 
 @dataclass
@@ -147,27 +147,41 @@ def fmt_eps(value: float | None) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
-def growth_pct(estimate: float | None, year_ago: float | None) -> float | None:
-    """同比增长百分比；去年同期亏损或为 0 时百分比没有意义，返回 None。"""
-    if estimate is None or year_ago is None or year_ago <= 0:
+def growth_pct(estimate: float | None, base: float | None) -> float | None:
+    """增长百分比；基数亏损或为 0 时百分比没有意义，返回 None。"""
+    if estimate is None or base is None or base <= 0:
         return None
-    return (estimate - year_ago) / year_ago * 100
+    return (estimate - base) / base * 100
 
 
-def fmt_growth(estimate: float | None, year_ago: float | None) -> str:
-    """例如 "（同比 +18%）"；去年同期亏损或为 0 时改为直接给出去年的数。"""
-    if estimate is None or year_ago is None:
-        return ""
-    pct = growth_pct(estimate, year_ago)
-    if pct is not None:
-        return f"（同比 {pct:+.0f}%）"
-    return f"（去年同期 {year_ago:.2f}）"
+# 基数 ≤ 0 时不给百分比，改为直接列出基数
+BASE_NAMES = {"同比": "去年同期", "环比": "上季"}
 
 
-def attach_year_ago(report: Report, lookup: Callable[[EarningsEvent], float | None]) -> None:
-    """给 7 天内（只有这一组显示 EPS 预期）的公司补上去年同期的实际 EPS。"""
+def eps_changes(estimate: float | None, baseline: EpsBaseline) -> list[tuple[str, float | None, float]]:
+    """[(同比/环比, 百分比, 基数)]；缺数据的项不返回，基数 ≤ 0 时百分比为 None。"""
+    if estimate is None:
+        return []
+    return [
+        (name, growth_pct(estimate, base), base)
+        for name, base in (("同比", baseline.year_ago), ("环比", baseline.last_quarter))
+        if base is not None
+    ]
+
+
+def fmt_growth(estimate: float | None, baseline: EpsBaseline) -> str:
+    """例如 "（同比 +9%，环比 +5%）"；基数亏损或为 0 时改为直接给出基数，如 "上季 -0.05"。"""
+    items = [
+        f"{name} {pct:+.0f}%" if pct is not None else f"{BASE_NAMES[name]} {base:.2f}"
+        for name, pct, base in eps_changes(estimate, baseline)
+    ]
+    return f"（{'，'.join(items)}）" if items else ""
+
+
+def attach_eps_baseline(report: Report, lookup: Callable[[EarningsEvent], EpsBaseline]) -> None:
+    """给 7 天内（只有这一组显示 EPS 预期）的公司补上上一季度和去年同期的实际 EPS。"""
     report.within_7 = [
-        replace(e, eps_year_ago=lookup(e.event)) if e.event.eps_estimate is not None else e
+        replace(e, baseline=lookup(e.event)) if e.event.eps_estimate is not None else e
         for e in report.within_7
     ]
 
@@ -217,7 +231,7 @@ def render_markdown(report: Report) -> str:
             ev = e.event
             details = []
             if eps := fmt_eps(ev.eps_estimate):
-                details.append(f"EPS 预期 {eps}{fmt_growth(ev.eps_estimate, e.eps_year_ago)}")
+                details.append(f"EPS 预期 {eps}{fmt_growth(ev.eps_estimate, e.baseline)}")
             if revenue := fmt_revenue(ev.revenue_estimate):
                 details.append(f"营收预期 {revenue}")
             # 时段未定时 fmt_beijing 已经给出美东日期，不必再重复一遍

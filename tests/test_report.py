@@ -4,8 +4,10 @@ from earnings_watch.models import EarningsEvent, Stock
 from earnings_watch.report import (
     BJ,
     TITLE_MAX,
+    attach_year_ago,
     build_report,
     fmt_beijing,
+    fmt_growth,
     fmt_revenue,
     render_markdown,
     render_title,
@@ -107,7 +109,7 @@ def test_revenue_format():
     assert fmt_revenue(None) is None
 
 
-def test_markdown_contains_links_and_sections():
+def test_markdown_sections_without_links():
     stocks = [Stock("NVDA", "英伟达")]
     events = {"NVDA": [ev("NVDA", date(2026, 11, 4), "amc", eps_estimate=1.25, revenue_estimate=5.4e10)]}
     md = render_markdown(build_report(stocks, events, {}, NOW))
@@ -115,10 +117,45 @@ def test_markdown_contains_links_and_sections():
     assert "**NVDA 英伟达** · **3 天后**" in md
     assert "北京 11/05 周四 凌晨（美东 11/04 周三 盘后）" in md
     assert "EPS 预期 1.25 · 营收预期 540 亿美元" in md
-    assert "(https://www.earningswhispers.com/epsdetails/nvda)" in md
+    assert "earningswhispers" not in md
+
+
+def test_unknown_session_is_not_repeated_in_7_day_section():
+    md = render_markdown(build_report([Stock("ARM")], {"ARM": [ev("ARM", date(2026, 11, 5), "")]}, {}, NOW))
+    assert "- 美东 11/05 周四 时段未定\n" in md
+    assert "（美东" not in md
 
 
 def test_sample_data_fills_every_section():
     stocks = [Stock(f"S{i}") for i in range(10)]
     report = build_report(stocks, sample_events(stocks, NOW), {}, NOW)
     assert report.recent and report.within_7 and report.within_30 and report.later and report.no_date
+
+
+def test_7_day_entry_without_estimates_has_no_empty_line():
+    md = render_markdown(build_report([Stock("X")], {"X": [ev("X", date(2026, 11, 4), "amc")]}, {}, NOW))
+    assert "- 北京 11/05 周四 凌晨（美东 11/04 周三 盘后）\n\n" in md
+    assert "\n- \n" not in md
+
+
+def test_growth_format():
+    assert fmt_growth(0.67, 0.46) == "（同比 +46%）"
+    assert fmt_growth(0.30, 0.40) == "（同比 -25%）"
+    assert fmt_growth(0.12, -0.05) == "（去年同期 -0.05）"
+    assert fmt_growth(0.12, 0.0) == "（去年同期 0.00）"
+    assert fmt_growth(0.12, None) == ""
+    assert fmt_growth(None, 0.4) == ""
+
+
+def test_year_ago_attached_only_to_7_day_entries_with_estimates():
+    stocks = [Stock("A"), Stock("B"), Stock("C")]
+    events = {
+        "A": [ev("A", date(2026, 11, 4), "amc", eps_estimate=0.67)],
+        "B": [ev("B", date(2026, 11, 4), "amc")],  # 没有 EPS 预期
+        "C": [ev("C", date(2026, 11, 20), "amc", eps_estimate=1.0)],  # 不在 7 天内
+    }
+    report = build_report(stocks, events, {}, NOW)
+    looked_up = []
+    attach_year_ago(report, lambda e: looked_up.append(e.symbol) or 0.46)
+    assert looked_up == ["A"]
+    assert "EPS 预期 0.67（同比 +46%）" in render_markdown(report)

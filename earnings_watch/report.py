@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -19,7 +20,6 @@ SESSIONS = {
 }
 UNKNOWN_SESSION_TIME = time(16, 30)  # 未公布时段时按盘后估算
 
-EW_URL = "https://www.earningswhispers.com/epsdetails/{symbol}"
 WEEKDAYS = "一二三四五六日"
 TITLE_MAX = 32  # Server酱 标题上限
 RECENT_WINDOW = timedelta(hours=24)
@@ -30,6 +30,7 @@ class Entry:
     stock: Stock
     event: EarningsEvent
     days: int  # 按北京日期计算，距离今天还有几天
+    eps_year_ago: float | None = None  # 去年同一季度的实际 EPS，用于算同比
 
 
 @dataclass
@@ -131,8 +132,21 @@ def fmt_eps(value: float | None) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
-def ew_link(symbol: str) -> str:
-    return f"[EW]({EW_URL.format(symbol=symbol.lower())})"
+def fmt_growth(estimate: float | None, year_ago: float | None) -> str:
+    """例如 "（同比 +18%）"；去年同期亏损或为 0 时百分比没有意义，改为直接给出去年的数。"""
+    if estimate is None or year_ago is None:
+        return ""
+    if year_ago > 0:
+        return f"（同比 {(estimate - year_ago) / year_ago * 100:+.0f}%）"
+    return f"（去年同期 {year_ago:.2f}）"
+
+
+def attach_year_ago(report: Report, lookup: Callable[[EarningsEvent], float | None]) -> None:
+    """给 7 天内（只有这一组显示 EPS 预期）的公司补上去年同期的实际 EPS。"""
+    report.within_7 = [
+        replace(e, eps_year_ago=lookup(e.event)) if e.event.eps_estimate is not None else e
+        for e in report.within_7
+    ]
 
 
 # ---------- 渲染 ----------
@@ -171,7 +185,7 @@ def render_markdown(report: Report) -> str:
     if report.recent:
         lines += ["#### 🆕 过去 24 小时已发布", ""]
         for e in report.recent:
-            lines.append(f"- **{e.stock.label}** {fmt_beijing(e.event)} · {_eps_result(e.event)} · {ew_link(e.stock.symbol)}")
+            lines.append(f"- **{e.stock.label}** {fmt_beijing(e.event)} · {_eps_result(e.event)}")
         lines.append("")
 
     if report.within_7:
@@ -180,17 +194,15 @@ def render_markdown(report: Report) -> str:
             ev = e.event
             details = []
             if eps := fmt_eps(ev.eps_estimate):
-                details.append(f"EPS 预期 {eps}")
+                details.append(f"EPS 预期 {eps}{fmt_growth(ev.eps_estimate, e.eps_year_ago)}")
             if revenue := fmt_revenue(ev.revenue_estimate):
                 details.append(f"营收预期 {revenue}")
-            details.append(ew_link(e.stock.symbol))
-            lines += [
-                f"**{e.stock.label}** · **{fmt_days(e.days)}**",
-                "",
-                f"- {fmt_beijing(ev)}（{fmt_us(ev)}）",
-                f"- {' · '.join(details)}",
-                "",
-            ]
+            # 时段未定时 fmt_beijing 已经给出美东日期，不必再重复一遍
+            when = f"{fmt_beijing(ev)}（{fmt_us(ev)}）" if ev.hour in SESSIONS else fmt_beijing(ev)
+            lines += [f"**{e.stock.label}** · **{fmt_days(e.days)}**", "", f"- {when}"]
+            if details:
+                lines.append(f"- {' · '.join(details)}")
+            lines.append("")
 
     for header, bucket in (
         ("🟡 8–30 天", report.within_30),
@@ -200,9 +212,7 @@ def render_markdown(report: Report) -> str:
             continue
         lines += [f"#### {header}（{len(bucket)} 家）", ""]
         for e in bucket:
-            lines.append(
-                f"- **{e.stock.label}** · {fmt_days(e.days)} · {fmt_beijing(e.event)} · {ew_link(e.stock.symbol)}"
-            )
+            lines.append(f"- **{e.stock.label}** · {fmt_days(e.days)} · {fmt_beijing(e.event)}")
         lines.append("")
 
     if report.no_date:
@@ -221,8 +231,8 @@ def render_markdown(report: Report) -> str:
     lines += [
         "---",
         "",
-        "数据来源 Finnhub。较远的日期多为预估，以公司公告为准；"
-        "点 EW 可在 Earnings Whispers 查看日期是否已确认及耳语数字。",
+        "数据来源 Finnhub，预期为分析师一致预期（non-GAAP）。"
+        "标注「时段未定」或较远的日期多为预估，以公司公告为准。",
     ]
     return "\n".join(lines).rstrip() + "\n"
 

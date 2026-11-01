@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from earnings_watch import serverchan
-from earnings_watch.finnhub import FinnhubAuthError, FinnhubClient, FinnhubError
+from earnings_watch.finnhub import FinnhubAuthError, FinnhubClient, FinnhubError, year_ago_actual
 from earnings_watch.watchlist import parse_watchlist
 
 
@@ -76,3 +76,34 @@ def test_finnhub_errors(monkeypatch):
 def test_serverchan_endpoint():
     assert serverchan.endpoint("SCT123abc") == "https://sctapi.ftqq.com/SCT123abc.send"
     assert serverchan.endpoint("sctp42tXYZ") == "https://42.push.ft07.com/send/sctp42tXYZ.send"
+
+
+def history(*rows):
+    return [{"period": p, "actual": a, "estimate": None, "symbol": "X"} for p, a in rows]
+
+
+def test_year_ago_actual_calendar_fiscal_year():
+    rows = history(("2026-06-30", 0.65), ("2026-03-31", 0.55), ("2025-12-31", 0.50), ("2025-09-30", 0.46))
+    assert year_ago_actual(rows, date(2026, 11, 4)) == 0.46
+
+
+def test_year_ago_actual_non_calendar_fiscal_year():
+    # 苹果这类财季结束日不在月底的公司
+    rows = history(("2026-06-27", 1.57), ("2026-03-28", 1.65), ("2025-12-27", 2.40), ("2025-09-27", 1.85))
+    assert year_ago_actual(rows, date(2026, 10, 29)) == 1.85
+
+
+def test_year_ago_actual_skips_when_data_not_aligned():
+    rows = history(("2026-03-31", 0.55), ("2025-12-31", 0.50), ("2025-09-30", 0.46), ("2025-06-30", 0.40))
+    assert year_ago_actual(rows, date(2026, 11, 4)) is None  # 最新一季还没收录
+    assert year_ago_actual(history(("2026-06-30", 0.65)), date(2026, 11, 4)) is None  # 去年同期不在结果里
+    assert year_ago_actual([{"period": "2026-06-30", "actual": None}], date(2026, 11, 4)) is None
+    assert year_ago_actual([], date(2026, 11, 4)) is None
+
+
+def test_eps_year_ago_calls_earnings_endpoint():
+    rows = history(("2026-06-30", 0.65), ("2026-03-31", 0.55), ("2025-12-31", 0.50), ("2025-09-30", 0.46))
+    c, session = client(FakeResponse(200, rows))
+    assert c.eps_year_ago("DDOG", date(2026, 11, 4)) == 0.46
+    assert session.calls[0][0].endswith("/stock/earnings")
+    assert session.calls[0][1] == {"symbol": "DDOG"}

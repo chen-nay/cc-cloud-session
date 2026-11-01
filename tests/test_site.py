@@ -4,8 +4,8 @@ from datetime import date, datetime
 from earnings_watch import __main__ as cli
 from earnings_watch import serverchan, snapshot
 from earnings_watch.html_report import render_html
-from earnings_watch.models import EarningsEvent, Stock
-from earnings_watch.report import BJ, attach_year_ago, build_report
+from earnings_watch.models import EarningsEvent, EpsBaseline, Stock
+from earnings_watch.report import BJ, attach_eps_baseline, build_report
 
 NOW = datetime(2026, 11, 2, 10, 0, tzinfo=BJ)
 
@@ -20,7 +20,11 @@ def sample_report():
         "Z": [],
     }
     report = build_report(stocks, events, {}, NOW)
-    attach_year_ago(report, lambda ev: {"NVDA": 0.81, "ARM": 0.52}[ev.symbol])
+    baselines = {
+        "NVDA": EpsBaseline(last_quarter=1.30, year_ago=0.81),
+        "ARM": EpsBaseline(last_quarter=-0.02, year_ago=0.52),
+    }
+    attach_eps_baseline(report, lambda ev: baselines[ev.symbol])
     return report
 
 
@@ -28,9 +32,11 @@ def test_render_html_sections_and_values():
     page = render_html(sample_report())
     assert "<b>NVDA</b><span>英伟达</span>" in page
     assert '<span class="up">同比 +54%</span>' in page  # 红涨
-    assert '<span class="down">同比 -8%</span>' in page  # 绿跌
+    assert '<span class="down">环比 -4%</span>' in page  # 绿跌
+    assert '<span class="down">同比 -8%</span>' in page
+    assert "上季 -0.02" in page  # 上季亏损时不给百分比
     assert "营收预期 540 亿" in page
-    assert "美东 · 时段未定" in page
+    assert "美东 · 未定" in page
     assert "7 天内" in page and "8–30 天" in page and "31–60 天" in page and "60 天内暂无日期" in page
     assert "&lt;script&gt;" in page and "<script>" not in page
 

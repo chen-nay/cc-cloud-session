@@ -27,3 +27,11 @@ class EarningsEvent:
     eps_actual: float | None = None
     revenue_estimate: float | None = None
     revenue_actual: float | None = None
+
+
+@dataclass(frozen=True)
+class EpsBaseline:
+    """用来和即将发布这一季的 EPS 预期做比较的历史实际 EPS。"""
+
+    last_quarter: float | None = None  # 上一季度实际（算环比）
+    year_ago: float | None = None  # 去年同一季度实际（算同比）

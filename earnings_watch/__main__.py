@@ -12,9 +12,9 @@ from pathlib import Path
 
 from . import serverchan
 from .finnhub import FinnhubAuthError, FinnhubClient, FinnhubError
-from .models import EarningsEvent, Stock
 from .html_report import render_html
-from .report import BJ, ET, Report, attach_year_ago, build_report, render_markdown, render_title
+from .models import EarningsEvent, EpsBaseline, Stock
+from .report import BJ, ET, Report, attach_eps_baseline, build_report, render_markdown, render_title
 from .sample import sample_events
 from .watchlist import load_watchlist
 
@@ -41,19 +41,24 @@ def fetch_all(
     return events, failures
 
 
-def year_ago_lookup(client: FinnhubClient):
-    """查询失败不影响整体：只是不显示同比。"""
+def baseline_lookup(client: FinnhubClient):
+    """查询失败不影响整体：只是不显示同比和环比。"""
 
-    def lookup(event: EarningsEvent) -> float | None:
+    def lookup(event: EarningsEvent) -> EpsBaseline:
         try:
-            value = client.eps_year_ago(event.symbol, event.date)
+            baseline = client.eps_baseline(event.symbol, event.date)
         except FinnhubError as e:
-            log.warning("%-6s 去年同期 EPS 查询失败：%s", event.symbol, e)
-            return None
-        log.info("%-6s 去年同期 EPS：%s", event.symbol, value)
-        return value
+            log.warning("%-6s 历史 EPS 查询失败：%s", event.symbol, e)
+            return EpsBaseline()
+        log.info("%-6s 上季 EPS：%s，去年同期 EPS：%s", event.symbol, baseline.last_quarter, baseline.year_ago)
+        return baseline
 
     return lookup
+
+
+def sample_baseline(event: EarningsEvent) -> EpsBaseline:
+    """示例数据：假设同比 +20%、环比 +5%。"""
+    return EpsBaseline(last_quarter=round(event.eps_estimate / 1.05, 2), year_ago=round(event.eps_estimate / 1.2, 2))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,10 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     report = build_report(stocks, events, failures, now, horizon_days=args.days)
-    if client is None:
-        attach_year_ago(report, lambda ev: round(ev.eps_estimate / 1.2, 2))  # 示例数据：假设同比 +20%
-    else:
-        attach_year_ago(report, year_ago_lookup(client))
+    attach_eps_baseline(report, sample_baseline if client is None else baseline_lookup(client))
     title, body = render_title(report), render_markdown(report)
 
     out = Path(args.output)

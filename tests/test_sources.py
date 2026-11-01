@@ -3,7 +3,8 @@ from datetime import date
 import pytest
 
 from earnings_watch import serverchan
-from earnings_watch.finnhub import FinnhubAuthError, FinnhubClient, FinnhubError, year_ago_actual
+from earnings_watch.finnhub import FinnhubAuthError, FinnhubClient, FinnhubError, baseline_from_history
+from earnings_watch.models import EpsBaseline
 from earnings_watch.watchlist import parse_watchlist
 
 
@@ -82,28 +83,30 @@ def history(*rows):
     return [{"period": p, "actual": a, "estimate": None, "symbol": "X"} for p, a in rows]
 
 
-def test_year_ago_actual_calendar_fiscal_year():
+def test_baseline_calendar_fiscal_year():
     rows = history(("2026-06-30", 0.65), ("2026-03-31", 0.55), ("2025-12-31", 0.50), ("2025-09-30", 0.46))
-    assert year_ago_actual(rows, date(2026, 11, 4)) == 0.46
+    assert baseline_from_history(rows, date(2026, 11, 4)) == EpsBaseline(last_quarter=0.65, year_ago=0.46)
 
 
-def test_year_ago_actual_non_calendar_fiscal_year():
+def test_baseline_non_calendar_fiscal_year():
     # 苹果这类财季结束日不在月底的公司
     rows = history(("2026-06-27", 1.57), ("2026-03-28", 1.65), ("2025-12-27", 2.40), ("2025-09-27", 1.85))
-    assert year_ago_actual(rows, date(2026, 10, 29)) == 1.85
+    assert baseline_from_history(rows, date(2026, 10, 29)) == EpsBaseline(last_quarter=1.57, year_ago=1.85)
 
 
-def test_year_ago_actual_skips_when_data_not_aligned():
+def test_baseline_when_data_not_aligned():
+    empty = EpsBaseline()
     rows = history(("2026-03-31", 0.55), ("2025-12-31", 0.50), ("2025-09-30", 0.46), ("2025-06-30", 0.40))
-    assert year_ago_actual(rows, date(2026, 11, 4)) is None  # 最新一季还没收录
-    assert year_ago_actual(history(("2026-06-30", 0.65)), date(2026, 11, 4)) is None  # 去年同期不在结果里
-    assert year_ago_actual([{"period": "2026-06-30", "actual": None}], date(2026, 11, 4)) is None
-    assert year_ago_actual([], date(2026, 11, 4)) is None
+    assert baseline_from_history(rows, date(2026, 11, 4)) == empty  # 最新一季还没收录，上一季也对不上
+    only_latest = baseline_from_history(history(("2026-06-30", 0.65)), date(2026, 11, 4))
+    assert only_latest == EpsBaseline(last_quarter=0.65, year_ago=None)  # 有环比，没有同比
+    assert baseline_from_history([{"period": "2026-06-30", "actual": None}], date(2026, 11, 4)) == empty
+    assert baseline_from_history([], date(2026, 11, 4)) == empty
 
 
-def test_eps_year_ago_calls_earnings_endpoint():
+def test_eps_baseline_calls_earnings_endpoint():
     rows = history(("2026-06-30", 0.65), ("2026-03-31", 0.55), ("2025-12-31", 0.50), ("2025-09-30", 0.46))
     c, session = client(FakeResponse(200, rows))
-    assert c.eps_year_ago("DDOG", date(2026, 11, 4)) == 0.46
+    assert c.eps_baseline("DDOG", date(2026, 11, 4)) == EpsBaseline(last_quarter=0.65, year_ago=0.46)
     assert session.calls[0][0].endswith("/stock/earnings")
     assert session.calls[0][1] == {"symbol": "DDOG"}

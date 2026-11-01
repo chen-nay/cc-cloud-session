@@ -9,14 +9,15 @@ from html import escape
 
 from .models import EarningsEvent
 from .report import (
+    BASE_NAMES,
     Entry,
     Report,
     beijing_slot,
+    eps_changes,
     fmt_day,
     fmt_days,
     fmt_eps,
     fmt_revenue,
-    growth_pct,
     session_name,
     us_day,
 )
@@ -137,7 +138,7 @@ def _when(event: EarningsEvent) -> tuple[str, str]:
     """(日期, 补充说明)：时段已知时给北京时间，否则给美东日期。"""
     slot = beijing_slot(event)
     if slot is None:
-        return us_day(event), "美东 · 时段未定"
+        return us_day(event), "美东 · 未定"  # 太长会在窄列里折成三行
     return fmt_day(slot[0]), f"{slot[1]} · {session_name(event)}"
 
 
@@ -146,16 +147,16 @@ def _hot_row(e: Entry) -> str:
     d, t = _when(ev)
     details = []  # EPS 和营收各占一行，避免手机宽度下折行
     if eps := fmt_eps(ev.eps_estimate):
-        pct = growth_pct(ev.eps_estimate, e.eps_year_ago)
-        if pct is not None:
-            cls = "up" if pct >= 0 else "down"
-            eps += f' · <span class="{cls}">同比 {pct:+.0f}%</span>'
-        elif e.eps_year_ago is not None:
-            eps += f" · 去年同期 {e.eps_year_ago:.2f}"
+        for name, pct, base in eps_changes(ev.eps_estimate, e.baseline):
+            if pct is not None:
+                cls = "up" if pct >= 0 else "down"
+                eps += f' · <span class="{cls}">{name} {pct:+.0f}%</span>'
+            else:
+                eps += f" · {BASE_NAMES[name]} {base:.2f}"
         details.append(f"EPS 预期 {eps}")
     if revenue := fmt_revenue(ev.revenue_estimate):
         details.append(f"营收预期 {revenue}")
-    est = "".join(f'<div class="est">{d}</div>' for d in details)
+    est = "".join(f'<div class="est">{line}</div>' for line in details)
     return (
         f'<div class="row"><div class="when"><div class="d">{d}</div><div class="t">{t}</div></div>'
         f'<div><div class="name">{_label(e.stock.symbol, e.stock.label)}</div>{est}</div>'

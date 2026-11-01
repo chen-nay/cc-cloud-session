@@ -9,7 +9,7 @@ from typing import Any
 
 import requests
 
-from .models import EarningsEvent
+from .models import EarningsEvent, EpsBaseline
 
 BASE_URL = "https://finnhub.io/api/v1"
 log = logging.getLogger(__name__)
@@ -93,17 +93,17 @@ class FinnhubClient:
             )
         return [events[d] for d in sorted(events)]
 
-    def eps_year_ago(self, symbol: str, report_date: date) -> float | None:
-        """即将在 report_date 发布的这一季，去年同一季度的实际 EPS（non-GAAP）。"""
-        return year_ago_actual(self._get("/stock/earnings", {"symbol": symbol}), report_date)
+    def eps_baseline(self, symbol: str, report_date: date) -> EpsBaseline:
+        """即将在 report_date 发布的这一季：上一季度和去年同期的实际 EPS（non-GAAP）。"""
+        return baseline_from_history(self._get("/stock/earnings", {"symbol": symbol}), report_date)
 
 
-def year_ago_actual(rows: list[dict] | None, report_date: date) -> float | None:
-    """从 /stock/earnings 的结果中找出"去年同期"的实际 EPS。
+def baseline_from_history(rows: list[dict] | None, report_date: date) -> EpsBaseline:
+    """从 /stock/earnings 的结果中找出"上一季度"和"去年同期"的实际 EPS。
 
     免费版只返回最近 4 个已公布季度。对苹果、英伟达这类财年和自然年不一致的公司，
     这个接口和财报日历的季度编号口径不同，所以按财季结束日期对应：
-    最近一个已公布季度往前推 3 个季度，就是即将发布这一季的去年同期。
+    最近一个已公布季度就是上一季度；再往前推 3 个季度，就是即将发布这一季的去年同期。
     """
     periods: list[tuple[date, float]] = []
     for row in rows or []:
@@ -112,15 +112,13 @@ def year_ago_actual(rows: list[dict] | None, report_date: date) -> float | None:
         except (KeyError, TypeError, ValueError):
             continue
     if not periods:
-        return None
+        return EpsBaseline()
     periods.sort(reverse=True)
-    latest = periods[0][0]
+    latest, latest_actual = periods[0]
     # 正常情况下，最近一个已公布季度结束后约 3～6 个月发布下一季财报；
     # 不在这个范围内说明数据没对齐（比如最新一季还没收录），宁可不显示
     if not 95 <= (report_date - latest).days <= 190:
-        return None
+        return EpsBaseline()
     target = latest - timedelta(days=273)
-    for period, actual in periods:
-        if abs((period - target).days) <= 20:
-            return actual
-    return None
+    year_ago = next((actual for period, actual in periods if abs((period - target).days) <= 20), None)
+    return EpsBaseline(last_quarter=latest_actual, year_ago=year_ago)

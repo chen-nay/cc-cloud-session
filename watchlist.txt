@@ -11,3 +11,7 @@ AMD
 PLTR   Palantir
 NFLX   奈飞
 DELL   戴尔
+MU     美光
+SNDK   闪迪
+BABA   阿里巴巴
+PDD    拼多多

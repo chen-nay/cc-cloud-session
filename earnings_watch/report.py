@@ -274,37 +274,6 @@ def render_markdown(report: Report) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_wecom_markdown(report: Report) -> str:
-    """企业微信群里配合报告图片发的一段简短文字（完整内容看图）。
-
-    企业微信 markdown 只支持标题、加粗、链接、引用和三种颜色：warning 橙红 / info 绿 / comment 灰。
-    """
-    lines = [
-        f"### 美股财报日历 · {fmt_day(report.now)}",
-        f"关注 {report.total} 家 · 7 天内 <font color=\"warning\">{len(report.within_7)}</font> 家",
-    ]
-    for e in report.recent:
-        ev = e.event
-        if ev.eps_actual is not None and ev.eps_estimate is not None and ev.eps_actual != ev.eps_estimate:
-            beat = ev.eps_actual > ev.eps_estimate
-            mark = '<font color="warning">超预期</font>' if beat else '<font color="info">不及预期</font>'
-        else:
-            mark = '<font color="comment">已发布</font>'
-        lines.append(f"> **刚发布** {e.stock.label} {mark}")
-    if report.within_7:
-        groups: dict[int, list[str]] = {}
-        for e in report.within_7:
-            groups.setdefault(e.days, []).append(e.stock.label)
-        lines += [
-            f'> <font color="warning">{fmt_days(days)}</font>　{" · ".join(labels)}'
-            for days, labels in sorted(groups.items())
-        ]
-    else:
-        lines.append('> <font color="comment">未来 7 天没有关注的公司发财报</font>')
-    lines.append('<font color="comment">完整报告见下图</font>')
-    return "\n".join(lines)
-
-
 def _eps_result(ev: EarningsEvent) -> str:
     if ev.eps_actual is None:
         return "实际数据待更新"

@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime
 
 from earnings_watch import __main__ as cli
-from earnings_watch import serverchan, snapshot, wecom
+from earnings_watch import serverchan, snapshot
 from earnings_watch.html_report import render_html
 from earnings_watch.models import EarningsEvent, EpsBaseline, Stock
 from earnings_watch.report import BJ, attach_eps_baseline, build_report
@@ -46,15 +46,15 @@ def test_compose_body():
     body = cli.compose_body(message)
     assert body.startswith("![美股财报日历](https://x.io/p/a.png)\n\n[打开网页版](https://x.io/p/)")
     assert body.endswith("文字版")
-    assert cli.compose_body(message, no_pages=True) == "文字版"
+    assert cli.compose_body(message, text_only=True) == "文字版"
     assert cli.compose_body({**message, "image_url": None}) == "文字版"
 
 
-def test_build_site_returns_image_path(tmp_path, monkeypatch):
+def test_build_site_returns_image_url(tmp_path, monkeypatch):
     monkeypatch.setattr(snapshot, "screenshot", lambda html, png: png.write_bytes(b"png"))
-    path = cli.build_site(sample_report(), tmp_path)
-    assert path == tmp_path / "report-20261102-1000.png" and path.exists()
-    assert (tmp_path / "index.html").exists()
+    url = cli.build_site(sample_report(), tmp_path, "https://chen-nay.github.io/cc-cloud-session/")
+    assert url == "https://chen-nay.github.io/cc-cloud-session/report-20261102-1000.png"
+    assert (tmp_path / "index.html").exists() and (tmp_path / "report-20261102-1000.png").exists()
 
 
 def test_build_site_falls_back_to_text_when_screenshot_fails(tmp_path, monkeypatch):
@@ -62,91 +62,17 @@ def test_build_site_falls_back_to_text_when_screenshot_fails(tmp_path, monkeypat
         raise RuntimeError("no browser")
 
     monkeypatch.setattr(snapshot, "screenshot", broken)
-    assert cli.build_site(sample_report(), tmp_path) is None
+    assert cli.build_site(sample_report(), tmp_path, "https://x.io") is None
     assert (tmp_path / "index.html").exists()
 
 
-class Recorder:
-    """记录 Server酱 和企业微信收到的消息；fail 指定的渠道抛出异常。"""
-
-    def __init__(self, monkeypatch, fail=()):
-        self.sent = []
-
-        def serverchan_send(key, title, body):
-            if "serverchan" in fail:
-                raise serverchan.ServerChanError("boom")
-            self.sent.append(("serverchan", title, body))
-
-        def wecom_markdown(url, content):
-            if "wecom" in fail:
-                raise wecom.WeComError("boom")
-            self.sent.append(("wecom-md", url, content))
-
-        monkeypatch.setattr(serverchan, "send", serverchan_send)
-        monkeypatch.setattr(wecom, "send_markdown", wecom_markdown)
-        monkeypatch.setattr(wecom, "send_image", lambda url, image: self.sent.append(("wecom-img", url, image)))
-
-
-def write_message(tmp_path, **overrides):
-    image = tmp_path / "report.png"
-    image.write_bytes(b"PNG")
-    message = {
-        "title": "标题",
-        "text": "正文",
-        "wecom_markdown": "### 摘要",
-        "image_path": str(image),
-        "image_url": "https://x.io/p/report.png",
-        "page_url": "https://x.io/p",
-        **overrides,
-    }
+def test_send_previously_built_message(tmp_path, monkeypatch):
     path = tmp_path / "message.json"
-    path.write_text(json.dumps(message, ensure_ascii=False), encoding="utf-8")
-    return path
-
-
-def test_send_to_both_channels(tmp_path, monkeypatch):
-    rec = Recorder(monkeypatch)
+    path.write_text(json.dumps({"title": "标题", "text": "正文", "image_url": "https://x.io/a.png", "page_url": None}))
+    sent = []
+    monkeypatch.setattr(serverchan, "send", lambda key, title, body: sent.append((key, title, body)))
     monkeypatch.setenv("SERVERCHAN_SENDKEY", "SCTkey")
-    monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://hook")
-    assert cli.main(["--send", str(write_message(tmp_path))]) == 0
-    assert [s[0] for s in rec.sent] == ["serverchan", "wecom-md", "wecom-img"]
-    assert rec.sent[0][2].startswith("![美股财报日历](https://x.io/p/report.png)")
-    assert rec.sent[1][2] == "### 摘要\n[打开网页版](https://x.io/p/)"
-    assert rec.sent[2] == ("wecom-img", "https://hook", b"PNG")
-
-
-def test_send_without_pages_still_uploads_image_to_wecom(tmp_path, monkeypatch):
-    rec = Recorder(monkeypatch)
-    monkeypatch.setenv("SERVERCHAN_SENDKEY", "SCTkey")
-    monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://hook")
-    assert cli.main(["--send", str(write_message(tmp_path)), "--no-pages"]) == 0
-    assert rec.sent[0] == ("serverchan", "标题", "正文")  # 不引用网页上的图片
-    assert rec.sent[1][2] == "### 摘要"  # 不附网页链接
-    assert rec.sent[2][0] == "wecom-img"  # 图片直接上传，不依赖网页
-
-
-def test_only_configured_channels_are_used(tmp_path, monkeypatch):
-    rec = Recorder(monkeypatch)
-    monkeypatch.delenv("SERVERCHAN_SENDKEY", raising=False)
-    monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://hook")
-    assert cli.main(["--send", str(write_message(tmp_path))]) == 0
-    assert [s[0] for s in rec.sent] == ["wecom-md", "wecom-img"]
-    monkeypatch.delenv("WECOM_WEBHOOK_URL")
-    assert cli.main(["--send", str(write_message(tmp_path))]) == 2  # 一个渠道都没配置
-
-
-def test_one_channel_failing_does_not_block_the_other(tmp_path, monkeypatch):
-    rec = Recorder(monkeypatch, fail=("serverchan",))
-    monkeypatch.setenv("SERVERCHAN_SENDKEY", "SCTkey")
-    monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://hook")
-    assert cli.main(["--send", str(write_message(tmp_path))]) == 1
-    assert [s[0] for s in rec.sent] == ["wecom-md", "wecom-img"]
-
-
-def test_alert_goes_to_all_channels(monkeypatch):
-    rec = Recorder(monkeypatch)
-    monkeypatch.setenv("SERVERCHAN_SENDKEY", "SCTkey")
-    monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://hook")
-    assert cli.main(["--alert", "出错了"]) == 0
-    assert rec.sent[0] == ("serverchan", "美股财报日历：运行失败", "出错了")
-    assert rec.sent[1] == ("wecom-md", "https://hook", "**美股财报日历：运行失败**\n出错了")
+    assert cli.main(["--send", str(path)]) == 0
+    assert cli.main(["--send", str(path), "--text-only"]) == 0
+    assert sent[0] == ("SCTkey", "标题", "![美股财报日历](https://x.io/a.png)\n\n---\n\n正文")
+    assert sent[1] == ("SCTkey", "标题", "正文")

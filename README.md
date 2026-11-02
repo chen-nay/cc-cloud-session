@@ -5,7 +5,9 @@
 1. 读取 `watchlist.txt` 里的关注列表
 2. 用 [Finnhub](https://finnhub.io) 查询每家公司未来 60 天内的财报日
 3. 生成一张报告长图和一个网页版，发布到 GitHub Pages（<https://chen-nay.github.io/cc-cloud-session/>）
-4. 通过 [Server酱](https://sct.ftqq.com) 推送到你的个人微信：上面是图片（长按可以直接转发到群），下面附文字版
+4. 推送到所有已配置的渠道（配置了哪个就推哪个）：
+   - **企业微信群**：一段简短文字加上报告长图，图片直接显示在群聊里
+   - **个人微信**（通过 [Server酱](https://sct.ftqq.com)）：上面是图片，下面附文字版
 
 推送内容按距离远近分组：过去 24 小时已发布、7 天内、8–30 天、31–60 天、60 天内暂无日期。查询天数可以用 `--days` 修改。每家公司都会显示：
 
@@ -24,14 +26,18 @@
 
 打开 <https://sct.ftqq.com>，用微信扫码登录，并关注"方糖"服务号。然后在 SendKey 页面复制你的 SendKey。
 
-### 3. 把两个 key 填到 GitHub Secrets
+### 3. 把 key 填到 GitHub Secrets
 
-进入仓库的 **Settings → Secrets and variables → Actions → New repository secret**，添加两个 secret：
+进入仓库的 **Settings → Secrets and variables → Actions → New repository secret**，添加下面的 secret。推送渠道至少配置一个：
 
 | Name | Value |
 |---|---|
 | `FINNHUB_API_KEY` | 第 1 步拿到的 Finnhub API key |
-| `SERVERCHAN_SENDKEY` | 第 2 步拿到的 Server酱 SendKey |
+| `SERVERCHAN_SENDKEY` | 第 2 步拿到的 Server酱 SendKey（可选：推送到个人微信） |
+| `WECOM_WEBHOOK_URL` | 企业微信群的消息推送地址（可选：推送到企业微信群，获取方法见下面） |
+
+**获取企业微信群的消息推送地址**：打开企业微信群，点右上角 **···**，找到 **消息推送**（旧版叫"群机器人"），选 **添加 → 新建**。创建完成后复制 webhook 地址，形如 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`。
+这个功能只能加在内部群（成员都是企业微信用户）。webhook 地址要保密，拿到它的人都能往群里发消息，只放在 Secrets 里，不要写进代码。
 
 ### 4. 开启 GitHub Pages（用来放报告图片）
 
@@ -114,6 +120,7 @@ pip install pytest && python -m pytest
   - 每天 5 条，这个项目每天只用 1 条
   - 微信卡片上只显示标题，要点开才能看完整内容，所以标题里会直接写出 7 天内要发财报的公司
   - 消息内容只保留 1 天。如果要转发到群里，建议长按图片转发，图片发到群里后会一直保留
+- **企业微信群**：每个机器人每分钟最多发 20 条，图片不能超过 2MB（报告图片一般在 1MB 以内）。
 - **网站上只保留最新一期**：每次发布都会整体替换网站内容，所以前一天消息里的图片链接第二天就打不开了。想保存的话，长按图片存下来即可。
 - **营收的币种**：营收按财报货币显示，多数是美元；阿里、拼多多等中概股可能是人民币。
 - **GitHub 定时任务可能延迟**：整点附近是高峰期，可能晚几分钟到几十分钟才运行。如果是公开仓库，连续 60 天没有提交，定时任务会被自动停用。
@@ -128,7 +135,8 @@ earnings_watch/
   report.py      分组、时间换算、生成 Markdown
   html_report.py 生成手机宽度的 HTML 报告（网页版，也用来截图）
   snapshot.py    用 Playwright 把 HTML 截成 PNG
-  serverchan.py  推送到微信
+  serverchan.py  推送到个人微信（Server酱）
+  wecom.py       推送到企业微信群
   sample.py      示例数据
 tests/           单元测试
 ```

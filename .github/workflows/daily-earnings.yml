@@ -69,12 +69,14 @@ jobs:
         continue-on-error: true
         uses: actions/deploy-pages@v5
 
+      # 推送到所有已配置的渠道：Server酱（个人微信）、企业微信群；没配置的自动跳过
       - name: Push to WeChat
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         run: >-
           python -m earnings_watch --send output/message.json
-          ${{ steps.deployment.outcome != 'success' && '--text-only' || '' }}
+          ${{ steps.deployment.outcome != 'success' && '--no-pages' || '' }}
 
       - name: Upload report
         if: always()
@@ -91,6 +93,7 @@ jobs:
         if: failure()
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         run: >-
           python -m earnings_watch --alert
           "今天的财报日历没有成功生成，查看日志：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
